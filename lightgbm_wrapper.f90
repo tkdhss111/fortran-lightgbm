@@ -69,34 +69,52 @@ contains
     function params_to_string(this) result(param_str)
         class(lgbm_params), intent(in) :: this
         character(len=1024) :: param_str
+        character(len=32) :: val
 
-        write(param_str, '(A)') &
-            "objective=" // trim(this%objective) // " " // &
-            "metric=" // trim(this%metric) // " "
+        param_str = "objective=" // trim(this%objective) // &
+                    " metric=" // trim(this%metric)
 
-        write(param_str, '(A,A,I0,A)') trim(param_str), "num_leaves=", this%num_leaves, " "
-        write(param_str, '(A,A,I0,A)') trim(param_str), "max_depth=", this%max_depth, " "
-        write(param_str, '(A,A,F8.6,A)') trim(param_str), "learning_rate=", this%learning_rate, " "
-        write(param_str, '(A,A,F6.4,A)') trim(param_str), "feature_fraction=", this%feature_fraction, " "
-        write(param_str, '(A,A,F6.4,A)') trim(param_str), "bagging_fraction=", this%bagging_fraction, " "
-        write(param_str, '(A,A,I0,A)') trim(param_str), "bagging_freq=", this%bagging_freq, " "
-        write(param_str, '(A,A,F10.6,A)') trim(param_str), "lambda_l1=", this%lambda_l1, " "
-        write(param_str, '(A,A,F10.6,A)') trim(param_str), "lambda_l2=", this%lambda_l2, " "
-        write(param_str, '(A,A,I0,A)') trim(param_str), "min_data_in_leaf=", this%min_data_in_leaf, " "
+        write(val, '(I0)') this%num_leaves
+        param_str = trim(param_str) // " num_leaves=" // trim(adjustl(val))
+
+        write(val, '(I0)') this%max_depth
+        param_str = trim(param_str) // " max_depth=" // trim(adjustl(val))
+
+        write(val, '(F8.6)') this%learning_rate
+        param_str = trim(param_str) // " learning_rate=" // trim(adjustl(val))
+
+        write(val, '(F6.4)') this%feature_fraction
+        param_str = trim(param_str) // " feature_fraction=" // trim(adjustl(val))
+
+        write(val, '(F6.4)') this%bagging_fraction
+        param_str = trim(param_str) // " bagging_fraction=" // trim(adjustl(val))
+
+        write(val, '(I0)') this%bagging_freq
+        param_str = trim(param_str) // " bagging_freq=" // trim(adjustl(val))
+
+        write(val, '(F10.6)') this%lambda_l1
+        param_str = trim(param_str) // " lambda_l1=" // trim(adjustl(val))
+
+        write(val, '(F10.6)') this%lambda_l2
+        param_str = trim(param_str) // " lambda_l2=" // trim(adjustl(val))
+
+        write(val, '(I0)') this%min_data_in_leaf
+        param_str = trim(param_str) // " min_data_in_leaf=" // trim(adjustl(val))
 
         if (this%num_threads > 0) then
-            write(param_str, '(A,A,I0,A)') trim(param_str), "num_threads=", this%num_threads, " "
+            write(val, '(I0)') this%num_threads
+            param_str = trim(param_str) // " num_threads=" // trim(adjustl(val))
         end if
 
         if (this%seed /= 0) then
-            write(param_str, '(A,A,I0,A)') trim(param_str), "seed=", this%seed, " "
+            write(val, '(I0)') this%seed
+            param_str = trim(param_str) // " seed=" // trim(adjustl(val))
         end if
 
         if (this%verbose <= 0) then
-            write(param_str, '(A,A)') trim(param_str), "verbose=-1 "
+            param_str = trim(param_str) // " verbose=-1"
         end if
 
-        param_str = trim(param_str)
     end function params_to_string
 
     !---------------------------------------------------------------------------
@@ -154,17 +172,21 @@ contains
             is_finished = lgbm_booster_update_one_iter(this%booster)
             if (is_finished) exit
 
-            ! Store losses if requested
-            if (present(train_loss) .and. iter <= size(train_loss)) then
-                call lgbm_booster_get_eval(this%booster, 0, eval_results)
-                train_loss(iter) = eval_results(1)
-                deallocate(eval_results)
+            ! Store losses if requested (nested ifs: Fortran .and. does not short-circuit)
+            if (present(train_loss)) then
+                if (iter <= size(train_loss)) then
+                    call lgbm_booster_get_eval(this%booster, 0, eval_results)
+                    train_loss(iter) = eval_results(1)
+                    deallocate(eval_results)
+                end if
             end if
 
-            if (present(valid_loss) .and. has_valid .and. iter <= size(valid_loss)) then
-                call lgbm_booster_get_eval(this%booster, 1, eval_results)
-                valid_loss(iter) = eval_results(1)
-                deallocate(eval_results)
+            if (present(valid_loss) .and. has_valid) then
+                if (iter <= size(valid_loss)) then
+                    call lgbm_booster_get_eval(this%booster, 1, eval_results)
+                    valid_loss(iter) = eval_results(1)
+                    deallocate(eval_results)
+                end if
             end if
 
             ! Verbose output

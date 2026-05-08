@@ -326,10 +326,13 @@ contains
     !---------------------------------------------------------------------------
     ! Check error and print message
     !---------------------------------------------------------------------------
-    subroutine lgbm_check_error(ret_code, operation)
+    subroutine lgbm_check_error(ret_code, operation, iostat)
         integer(c_int), intent(in) :: ret_code
         character(len=*), intent(in), optional :: operation
+        integer, intent(out), optional :: iostat
         character(len=:), allocatable :: error_msg
+
+        if (present(iostat)) iostat = int(ret_code)
 
         if (ret_code /= 0) then
             error_msg = lgbm_get_last_error()
@@ -344,11 +347,11 @@ contains
     !---------------------------------------------------------------------------
     ! Convert Fortran string to C string
     !---------------------------------------------------------------------------
-    function f_c_string(f_string) result(c_string)
+    function to_c_string(f_string) result(c_string)
         character(len=*), intent(in) :: f_string
         character(len=:), allocatable :: c_string
         c_string = trim(f_string) // c_null_char
-    end function f_c_string
+    end function to_c_string
 
     !---------------------------------------------------------------------------
     ! Create dataset from matrix (generic interface)
@@ -366,7 +369,7 @@ contains
         type(c_ptr) :: ref_ptr
         character(len=:), allocatable :: c_params
 
-        c_params = f_c_string(parameters)
+        c_params = to_c_string(parameters)
 
         if (present(reference)) then
             ref_ptr = reference%ptr
@@ -379,7 +382,7 @@ contains
             data_type, &
             int(nrow, c_int32_t), &
             int(ncol, c_int32_t), &
-            1_c_int, &  ! is_row_major (Fortran is column-major, but we transpose)
+            0_c_int, &  ! is_row_major=0: Fortran column-major layout
             c_params, &
             ref_ptr, &
             dataset%ptr)
@@ -446,7 +449,7 @@ contains
 
         character(len=:), allocatable :: c_field_name
 
-        c_field_name = f_c_string(field_name)
+        c_field_name = to_c_string(field_name)
 
         ! Get number of data points
         num_data = lgbm_dataset_get_num_data(dataset)
@@ -468,7 +471,7 @@ contains
         integer(c_int) :: ret
         character(len=:), allocatable :: c_field_name
 
-        c_field_name = f_c_string("label")
+        c_field_name = to_c_string("label")
         ret = LGBM_DatasetSetField(dataset%ptr, c_field_name, c_loc(labels), &
             int(size(labels), c_int32_t), C_API_DTYPE_FLOAT32)
         call lgbm_check_error(ret, "DatasetSetLabel")
@@ -488,7 +491,7 @@ contains
         allocate(labels_f32(size(labels)))
         labels_f32 = real(labels, c_float)
 
-        c_field_name = f_c_string("label")
+        c_field_name = to_c_string("label")
         ret = LGBM_DatasetSetField(dataset%ptr, c_field_name, c_loc(labels_f32), &
             int(size(labels), c_int32_t), C_API_DTYPE_FLOAT32)
         call lgbm_check_error(ret, "DatasetSetLabel")
@@ -549,7 +552,7 @@ contains
         integer(c_int) :: ret
         character(len=:), allocatable :: c_params
 
-        c_params = f_c_string(parameters)
+        c_params = to_c_string(parameters)
 
         ret = LGBM_BoosterCreate(train_data%ptr, c_params, booster%ptr)
         call lgbm_check_error(ret, "BoosterCreate")
@@ -566,7 +569,7 @@ contains
         integer(c_int) :: ret, out_num_iter
         character(len=:), allocatable :: c_filename
 
-        c_filename = f_c_string(filename)
+        c_filename = to_c_string(filename)
 
         ret = LGBM_BoosterCreateFromModelfile(c_filename, out_num_iter, booster%ptr)
         call lgbm_check_error(ret, "BoosterCreateFromModelfile")
@@ -681,7 +684,7 @@ contains
 
         ret = LGBM_BoosterPredictForMat(booster%ptr, data_ptr, data_type, &
             int(nrow, c_int32_t), int(ncol, c_int32_t), &
-            1_c_int, pred_type, start_iter, num_iter, &
+            0_c_int, pred_type, start_iter, num_iter, &  ! is_row_major=0
             empty_params, out_len, c_loc(predictions(1)))
 
         call lgbm_check_error(ret, "BoosterPredictForMat")
@@ -743,7 +746,7 @@ contains
         if (present(num_iteration)) num_iter = int(num_iteration, c_int)
         if (present(feature_importance_type)) feat_type = int(feature_importance_type, c_int)
 
-        c_filename = f_c_string(filename)
+        c_filename = to_c_string(filename)
 
         ret = LGBM_BoosterSaveModel(booster%ptr, 0_c_int, num_iter, feat_type, c_filename)
         call lgbm_check_error(ret, "BoosterSaveModel")
@@ -791,24 +794,24 @@ contains
     ! Get feature importance
     !---------------------------------------------------------------------------
     subroutine lgbm_booster_feature_importance(booster, importance, num_iteration, &
-            importance_type)
+            importance_type, n_features)
         type(lgbm_booster_handle), intent(in) :: booster
         real(c_double), intent(out), allocatable, target :: importance(:)
         integer, intent(in), optional :: num_iteration, importance_type
+        integer, intent(in), optional :: n_features
 
         integer(c_int) :: ret, num_iter, imp_type
-        integer :: num_features
+        integer :: nf
 
         num_iter = -1
         imp_type = C_API_FEATURE_IMPORTANCE_SPLIT
+        nf = 100  ! safe default
 
         if (present(num_iteration)) num_iter = int(num_iteration, c_int)
         if (present(importance_type)) imp_type = int(importance_type, c_int)
+        if (present(n_features)) nf = n_features
 
-        ! Need to get number of features from a dataset or store it
-        ! For now, assume we need to allocate based on expected size
-        ! In practice, you'd track this from dataset creation
-        allocate(importance(1000))  ! Temporary large allocation
+        allocate(importance(nf))
 
         ret = LGBM_BoosterFeatureImportance(booster%ptr, num_iter, imp_type, &
             c_loc(importance(1)))
