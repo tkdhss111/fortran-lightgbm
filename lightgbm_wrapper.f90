@@ -138,6 +138,7 @@ contains
         integer :: iter, ret
         logical :: is_finished, has_valid
         integer(c_int) :: weight_ret
+        real(c_float), allocatable, target :: weight_f32(:), weight_valid_f32(:)
         real(c_double), allocatable :: eval_results(:)
 
         ! Use default or provided parameters
@@ -158,9 +159,16 @@ contains
 
         ! Optional per-sample weights (e.g., recency decay for time-series).
         ! LightGBM scales each row's loss-gradient contribution by its weight.
+        ! NOTE: LightGBM's LGBM_DatasetSetField only supports FLOAT32 for the
+        ! "weight" field (FLOAT64 path handles only "init_score" + "label").
+        ! Cast our DOUBLE weights down to single precision before passing.
         if (present(sample_weight)) then
+            allocate(weight_f32(size(sample_weight)))
+            weight_f32 = real(sample_weight, c_float)
             weight_ret = lgbm_dataset_set_field(this%train_data, "weight", &
-                c_loc(sample_weight), C_API_DTYPE_FLOAT64)
+                c_loc(weight_f32), C_API_DTYPE_FLOAT32)
+            ! weight_f32 stays allocated for the rest of this subroutine;
+            ! LightGBM copies the buffer during set_field per c_api semantics.
         end if
 
         ! Check for validation data
@@ -169,8 +177,10 @@ contains
             this%valid_data = lgbm_dataset_create_from_mat_f64(X_valid, "", this%train_data)
             call lgbm_dataset_set_label_f64(this%valid_data, y_valid)
             if (present(sample_weight_valid)) then
+                allocate(weight_valid_f32(size(sample_weight_valid)))
+                weight_valid_f32 = real(sample_weight_valid, c_float)
                 weight_ret = lgbm_dataset_set_field(this%valid_data, "weight", &
-                    c_loc(sample_weight_valid), C_API_DTYPE_FLOAT64)
+                    c_loc(weight_valid_f32), C_API_DTYPE_FLOAT32)
             end if
         end if
 
