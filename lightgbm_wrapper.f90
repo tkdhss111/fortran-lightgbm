@@ -121,7 +121,7 @@ contains
     ! Train model (method)
     !---------------------------------------------------------------------------
     subroutine model_train(this, X, y, X_valid, y_valid, params, &
-            train_loss, valid_loss)
+            train_loss, valid_loss, sample_weight, sample_weight_valid)
         class(lgbm_model), intent(inout) :: this
         real(c_double), intent(in), target :: X(:,:)
         real(c_double), intent(in), target :: y(:)
@@ -130,11 +130,14 @@ contains
         type(lgbm_params), intent(in), optional :: params
         real(c_double), intent(out), optional :: train_loss(:)
         real(c_double), intent(out), optional :: valid_loss(:)
+        real(c_double), intent(in), target, optional :: sample_weight(:)
+        real(c_double), intent(in), target, optional :: sample_weight_valid(:)
 
         type(lgbm_params) :: p
         character(len=1024) :: param_str
         integer :: iter, ret
         logical :: is_finished, has_valid
+        integer(c_int) :: weight_ret
         real(c_double), allocatable :: eval_results(:)
 
         ! Use default or provided parameters
@@ -153,11 +156,22 @@ contains
         this%train_data = lgbm_dataset_create_from_mat_f64(X, "")
         call lgbm_dataset_set_label_f64(this%train_data, y)
 
+        ! Optional per-sample weights (e.g., recency decay for time-series).
+        ! LightGBM scales each row's loss-gradient contribution by its weight.
+        if (present(sample_weight)) then
+            weight_ret = lgbm_dataset_set_field(this%train_data, "weight", &
+                c_loc(sample_weight), C_API_DTYPE_FLOAT64)
+        end if
+
         ! Check for validation data
         has_valid = present(X_valid) .and. present(y_valid)
         if (has_valid) then
             this%valid_data = lgbm_dataset_create_from_mat_f64(X_valid, "", this%train_data)
             call lgbm_dataset_set_label_f64(this%valid_data, y_valid)
+            if (present(sample_weight_valid)) then
+                weight_ret = lgbm_dataset_set_field(this%valid_data, "weight", &
+                    c_loc(sample_weight_valid), C_API_DTYPE_FLOAT64)
+            end if
         end if
 
         ! Create booster
