@@ -57,6 +57,7 @@ module lightgbm_wrapper
         integer :: verbose = 1
         integer :: num_threads = 0
         integer :: seed = 0
+        character(len=512) :: monotone_constraints = ""   ! "" = off; else per-feature "0,1,-1,...": LightGBM monotone_constraints
     contains
         procedure :: to_string => params_to_string
     end type lgbm_params
@@ -113,6 +114,10 @@ contains
 
         if (this%verbose <= 0) then
             param_str = trim(param_str) // " verbose=-1"
+        end if
+
+        if (len_trim(this%monotone_constraints) > 0) then
+            param_str = trim(param_str) // " monotone_constraints=" // trim(adjustl(this%monotone_constraints))
         end if
 
     end function params_to_string
